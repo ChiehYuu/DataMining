@@ -1,7 +1,7 @@
 import streamlit as st
 from nba_api.stats.static import players
 from nba_api.stats.endpoints import shotchartdetail
-from nba_api.stats.static import teamspi
+from nba_api.stats.static import teams
 import matplotlib.pyplot as plt
 
 # Define the web app title
