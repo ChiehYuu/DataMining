@@ -22,6 +22,8 @@ career = playercareerstats.PlayerCareerStats(player_id=player_id)
 career_stats = career.get_data_frames()[0]
 team_id = career_stats.tail(1)['TEAM_ID'].item()
 
+season_id = st.selectbox("Select season:", [season for season in career_stats['SEASON_ID']])
+
 
 # Get the player's physical profile
 # player_index = playerindex.PlayerIndex(league_id='00', season='2022-23', is_only_current_season=1) 
@@ -119,7 +121,7 @@ for element in court_elements:
 shotchartlist = shotchartdetail.ShotChartDetail(team_id=int(team_id), 
                                                 player_id=player_id, 
                                                 season_type_all_star='Regular Season', 
-                                                season_nullable='2022-23',
+                                                season_nullable=season_id,
                                                 context_measure_simple="FGA").get_data_frames()
 
 data = shotchartlist[0]
