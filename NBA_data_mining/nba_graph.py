@@ -4,6 +4,14 @@ from nba_api.stats.endpoints import playercareerstats
 from nba_api.stats.endpoints import shotchartdetail
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle, Rectangle, Arc
+from matplotlib.colors import ListedColormap
+from matplotlib.colors import BoundaryNorm
+import pandas as pd
+import numpy as np
+from matplotlib.collections import PatchCollection
+from scipy.stats import percentileofscore
+from matplotlib.path import Path
+from matplotlib.patches import PathPatch
 
 # Define the web app title
 st.title("NBA Shooting Hot Zones")
@@ -12,7 +20,8 @@ st.title("NBA Shooting Hot Zones")
 nba_players = players.get_active_players()
 
 # Create a selectbox to choose a player from the list
-player_name = st.selectbox("Select a player:", [player['full_name'] for player in nba_players])
+player_name = st.selectbox("Select a player:", 
+                           [player['full_name'] for player in nba_players])
 
 # Get the player's ID
 player_id = [player['id'] for player in nba_players if player['full_name'] == player_name][0]
@@ -20,14 +29,13 @@ player_id = [player['id'] for player in nba_players if player['full_name'] == pl
 # Get the player's career stats
 career = playercareerstats.PlayerCareerStats(player_id=player_id)
 career_stats = career.get_data_frames()[0]
-team_id = career_stats.tail(1)['TEAM_ID'].item()
-
 season_id = st.selectbox("Select season:", [season for season in career_stats['SEASON_ID']])
-
-
-# Get the player's physical profile
-# player_index = playerindex.PlayerIndex(league_id='00', season='2022-23', is_only_current_season=1) 
-# player_profile = player_index.get_data_frames()[0]
+season = career_stats[career_stats['SEASON_ID'] == season_id[0]]
+if season.empty:
+    team_id = 0
+else:
+    # team_abbr = season['TEAM_ABBREVIATION'].tolist()
+    team_id = season['TEAM_ID'].tolist()[0]
 
 # Fetch the player's basic info
 player_info = players.find_player_by_id(player_id)
@@ -35,7 +43,7 @@ player_info = players.find_player_by_id(player_id)
 # Display the player's basic info
 st.header("Player Information")
 st.subheader("Name: " + player_info['full_name'])
-st.subheader("Team: " + career_stats.tail(1)['TEAM_ABBREVIATION'].item())
+# st.subheader("Team: " + team_abbr)
 # st.subheader("Height: " + str(player_profile.tail(1)['']) + " ft " + str(player_info['height_inches']) + " in")
 # st.subheader("Weight: " + str(player_info['weight_pounds']) + " lbs")
 
@@ -59,7 +67,6 @@ ax.set_ylim(500, -47.5)
 # 繪製球場的基礎元素
 lw = 2
 color = 'orange'
-
 ##################################
 # 繪製球場
 ##################################
@@ -117,8 +124,7 @@ court_elements = [c_line, hoop, backboard, outer_box, inner_box, top_free_throw,
 for element in court_elements:
     ax.add_patch(element)
 
-
-shotchartlist = shotchartdetail.ShotChartDetail(team_id=int(team_id), 
+shotchartlist = shotchartdetail.ShotChartDetail(team_id=team_id, 
                                                 player_id=player_id, 
                                                 season_type_all_star='Regular Season', 
                                                 season_nullable=season_id,
@@ -132,9 +138,81 @@ y_missed = data[data['EVENT_TYPE'] == 'Missed Shot']['LOC_Y']
 x_made = data[data['EVENT_TYPE'] == 'Made Shot']['LOC_X']
 y_made = data[data['EVENT_TYPE'] == 'Made Shot']['LOC_Y']
 
+# # 投籃分佈圖
+# ax.scatter(x_missed, y_missed, c='r', marker="x", s=300, linewidths=3)
+# ax.scatter(x_made, y_made, facecolors='none', edgecolors='g', marker="o", s=100, linewidths=3)
 
-ax.scatter(x_missed, y_missed, c='r', marker="x", s=300, linewidths=3)
-ax.scatter(x_made, y_made, facecolors='none', edgecolors='g', marker="o", s=100, linewidths=3)
+##################
+# HEX
+##################
+
+data2 = shotchartlist[1]
+
+# 聯盟個位置的出手平均及命中率計算
+LA = data2.loc[:,['SHOT_ZONE_AREA','SHOT_ZONE_RANGE', 'FGA', 'FGM']].groupby(['SHOT_ZONE_AREA', 'SHOT_ZONE_RANGE']).sum()
+LA['FGP'] = 1.0*LA['FGM']/LA['FGA']
+player = data.groupby(['SHOT_ZONE_AREA','SHOT_ZONE_RANGE','SHOT_MADE_FLAG']).size().unstack(fill_value=0)
+player['FGP'] = 1.0*player.loc[:,1]/player.sum(axis=1)
+player_vs_league = (player.loc[:,'FGP'] - LA.loc[:,'FGP'])*100  
+data_n = pd.merge(data, player_vs_league, on=['SHOT_ZONE_AREA', 'SHOT_ZONE_RANGE'], how='right')
+
+colors = ['#00ffef', '#0ABAB5', '#3964C3', '#0437F2', '#003153', '#000080']
+cmap = ListedColormap(colors)
+boundaries = [-np.inf, -9, -3, 0, 3, 9, np.inf]
+norm = BoundaryNorm(boundaries, cmap.N, clip=True)  
+x = data['LOC_X']
+y = data['LOC_Y']
+hexbin = ax.hexbin(x, y, gridsize=25, cmap=cmap, norm=norm, extent=[-275, 275, -50, 425])
+hexbin2 = ax.hexbin(x, y, C=data_n['FGP'], gridsize=60, cmap=cmap, norm=norm, extent=[-275, 275, -50, 425])
+
+# initialize hex graphs
+offsets = hexbin.get_offsets()
+orgpath = hexbin.get_paths()[0]
+verts = orgpath.vertices
+values1 = hexbin.get_array()
+values2 = hexbin2.get_array()
+ma = values1.max()
+patches = []
+
+
+for offset,val in zip(offsets,values1):
+    # Adding condition for minimum size 
+    # offset is the respective position of each hexagons
+    
+    # remove 0 to compare frequency without 0s
+    filtered_list = list(filter(lambda num: num != 0, values1))
+    
+    # we also skip frequency counts that are 0s
+    # this is to discount hexbins with no occurences
+    # default value hexagons are the frequencies
+    if (int(val) == 0):
+        continue
+    elif (percentileofscore(filtered_list, val) < 33.33):
+        #print(percentileofscore(values1, val))
+        #print("bot")
+        v1 = verts*0.3 + offset
+    elif (percentileofscore(filtered_list, val) > 69.99):
+        #print(percentileofscore(values1, val))
+        #print("top")
+        v1 = verts + offset
+    else:
+        #print("mid")
+        v1 = verts*0.6 + offset
+    
+    path = Path(v1, orgpath.codes)
+    patch = PathPatch(path)
+    patches.append(patch)
+
+pc = PatchCollection(patches, cmap=cmap, norm=norm)
+# sets color
+# so hexbin with C=data['FGP']
+pc.set_array(values2)
+
+ax.add_collection(pc)
+hexbin.remove()
+hexbin2.remove()
+
+
 
 
 # Set the plot title and axis labels
