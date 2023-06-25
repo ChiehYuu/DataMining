@@ -213,8 +213,6 @@ hexbin.remove()
 hexbin2.remove()
 
 
-
-
 # Set the plot title and axis labels
 ax.set_title("Shooting Hot Zones")
 ax.set_xlabel("X (feet)")
